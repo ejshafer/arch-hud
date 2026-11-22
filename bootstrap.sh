@@ -51,14 +51,20 @@ install_packages() {
 }
 
 install_fonts() {
-  local dir="$HOME/.local/share/fonts/hud"
+  # Free stand-ins for eDEX-UI's fonts: Saira Semi Condensed for United Sans (UI text),
+  # Share Tech Mono for the lite panels. Fira Mono (terminal) comes from pacman.
+  # If you own United Sans, drop its .otf files in ~/.local/share/fonts: the HUD prefers it.
+  local dir="$HOME/.local/share/fonts/hud" base=https://github.com/google/fonts/raw/main/ofl f
   mkdir -p "$dir"
-  if [[ ! -f "$dir/ShareTechMono-Regular.ttf" ]]; then
-    say "Fetching Share Tech Mono (HUD widget font)…"
-    curl -fsSL -o "$dir/ShareTechMono-Regular.ttf" \
-      https://github.com/google/fonts/raw/main/ofl/sharetechmono/ShareTechMono-Regular.ttf \
-      || warn "Font download failed; widgets fall back to Fira Mono."
-  fi
+  for f in sharetechmono/ShareTechMono-Regular.ttf \
+           sairasemicondensed/SairaSemiCondensed-Light.ttf \
+           sairasemicondensed/SairaSemiCondensed-Regular.ttf \
+           sairasemicondensed/SairaSemiCondensed-Medium.ttf \
+           sairasemicondensed/SairaSemiCondensed-SemiBold.ttf; do
+    [[ -f "$dir/${f##*/}" ]] && continue
+    say "Fetching font ${f##*/}…"
+    curl -fsSL -o "$dir/${f##*/}" "$base/$f" || warn "Could not download ${f##*/}; the HUD falls back to other fonts."
+  done
   fc-cache -f >/dev/null 2>&1 || true
 }
 
@@ -99,7 +105,7 @@ enable_services() {
 }
 
 case "${1:-all}" in
-  --dotfiles) link_dotfiles ;;
+  --dotfiles) install_fonts; link_dotfiles ;;
   all)
     install_packages
     install_fonts

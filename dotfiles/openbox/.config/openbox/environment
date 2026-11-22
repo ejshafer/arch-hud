@@ -1,3 +1,5 @@
 # Sourced by openbox-session before autostart.
 export PATH="$HOME/.local/bin:$PATH"
 [ -f "$HOME/.config/hud/repo.env" ] && . "$HOME/.config/hud/repo.env" && export HUD_REPO
+# Per-machine overrides that are not synced (e.g. HUD_MODE=lite).
+if [ -f "$HOME/.config/hud/local.env" ]; then set -a; . "$HOME/.config/hud/local.env"; set +a; fi

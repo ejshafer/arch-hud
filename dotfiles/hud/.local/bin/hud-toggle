@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Show / hide the eww HUD panels (Super+H).
+# Show / hide the HUD (Super+H): the full hud-shell surface, or the eww panels in lite mode.
+if [[ "${HUD_MODE:-full}" != lite ]] && command -v hud-shell >/dev/null; then
+  exec hud-shell --toggle
+fi
 if eww active-windows 2>/dev/null | grep -q '^left'; then
   eww close-all
 else

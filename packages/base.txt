@@ -50,6 +50,8 @@ openssh
 python
 python-gobject
 webkit2gtk-4.1
+python-xlib
+xdg-utils
 htop
 btop
 

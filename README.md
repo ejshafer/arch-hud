@@ -1,18 +1,20 @@
 # arch-hud
 
 A portable Arch Linux desktop styled after eDEX-UI / the ENCOM Boardroom:
-Openbox + picom + eww side panels + a see-through terminal + a spinning network globe.
+one full-screen HUD layer (system, CPU, memory, processes, network, globe, file browser,
+live keyboard) with a see-through kitty terminal docked in the middle.
 
 ```
-┌──────────────┬───────────────────────────────────┬──────────────┐
-│ 14:02:37     │ 1  zsh  │  2  nvim                 │ NETWORK      │
-│ SYSTEM       │                                   │ STATUS       │
-│ CPU ▁▃▅▂▇    │   kitty (transparent, Fira Mono)  │ TRAFFIC ▂▅▃  │
-│ ▮▮▮▮▮▮▮▮     │                                   │ FILESYSTEM   │
-│ MEMORY ███░  │                                   ├──────────────┤
-│ PROCESSES    │                                   │   (globe)    │
-│              │      [ ARCH // HUD  01 02 03 04 ] │              │
-└──────────────┴───────────────────────────────────┴──────────────┘
+┌ PANEL ── SYSTEM ┬ TERMINAL ──── 01 02 03 04 ──── MAIN SHELL ┬ PANEL ── NETWORK ┐
+│ 20:27:46        │ ▛MAIN SHELL◣ EMPTY ╲ EMPTY ╲ EMPTY ╲      │ NETWORK STATUS   │
+│ UPTIME TYPE PWR │                                           │ WORLD VIEW       │
+│ CPU USAGE ╱╲╱╲  │   kitty (transparent, Fira Mono, tabs)    │    (globe)       │
+│ MEMORY ░░▓▓▓    │                                           │ NETWORK TRAFFIC  │
+│ TOP PROCESSES   │                                           │ ╱╲__╱╲           │
+├ FILESYSTEM ─────┴───────────┬ KEYBOARD ─────────────────────┴──────────────────┤
+│ 📁 📁 📁 📄 📄 (follows the │ ESC ` 1 2 3 4 5 6 7 8 9 0 - = BACK  (keys light   │
+│ shell; click to cd / open)  │ TAB Q W E R T Y U I O P [ ] \       up as you type)│
+└─────────────────────────────┴────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -189,15 +191,19 @@ Log in on tty2 (**Ctrl+Alt+F2**) for a plain console.
 | **Super+D** | App launcher (rofi) |
 | **Super+Tab** | Window switcher |
 | **Super+B** | btop system monitor |
-| **Super+H** | Show/hide HUD panels |
-| **Super+G** | Show/hide globe |
+| **Super+H** | Show/hide the HUD |
+| **Super+G** | Pause/resume the globe |
+| **Super+K** | Turn the keyboard's key display off/on (do this before typing a password where people can see) |
 | **Super+E** | Launch the real eDEX-UI (if installed) |
 | **Super+Q** | Close window |
 | **Super+F / M** | Fullscreen / maximise |
 | **Super+←/→** | Snap left/right half |
 | **Super+1–4** | Switch desktop (**Super+Shift+1–4** sends window) |
 | **Super+Drag** | Move window (right-drag resizes) |
-| **Right-click desktop** | Menu (sync, reload, power) |
+| **Right-click the HUD** | Menu (sync, reload, power) |
+| **Ctrl+Shift+T** | New terminal tab (fills the next EMPTY slot) |
+| **Click a folder** in FILESYSTEM | `cd` there in the shell (only when the shell is idle at a prompt) |
+| **Click a file** | Open it with its default app |
 | **Super+Shift+R / E** | Reload Openbox / log out |
 
 ---
@@ -239,15 +245,42 @@ unpatched Electron. Fine as eye candy; don't run it as your everyday shell.
 
 ---
 
-## 10. Customising
+## 10. The HUD and customising it
 
-- **Colours** (from eDEX's "tron" theme) are repeated in each config — search & replace
+**How it works.** `hud-shell` (Python) opens one WebKit page,
+`~/.local/share/hud-shell/index.html`, on a desktop-type window under every other window,
+and reserves the side columns and bottom row as screen edges. So when Openbox maximises
+the terminal it lands exactly inside the TERMINAL frame. Once a second it feeds the page
+real numbers from `/proc` and `/sys`. It asks kitty (over a local socket) which folder
+your shell is in, so FILESYSTEM follows your `cd`s. It reads key presses from X only to
+light up the drawn keyboard: nothing is logged or saved. **Super+K** switches that off.
+
+**Fonts.** eDEX-UI uses *United Sans* (a paid font) for its UI and *Fira Mono* for the
+terminal. This repo uses **Saira Semi Condensed** (free, very close) for the UI and Fira
+Mono for the terminal. If you own United Sans, put its font files in
+`~/.local/share/fonts/` and run `fc-cache -f`: the HUD picks it up automatically.
+
+**Lite mode.** On a very slow machine, or if WebKit gives you a blank screen, use the
+older eww side panels instead:
+
+```bash
+mkdir -p ~/.config/hud && echo 'HUD_MODE=lite' >> ~/.config/hud/local.env
+```
+
+Log out and back in. (`local.env` is per-machine and never synced.)
+
+**Changing things**
+- **Colours** (from eDEX's "tron" theme) are repeated in each config. Search and replace
   across `dotfiles/`: `#aacfd1` cyan, `#05080d` ink, `#262828` line, `#4f6566` dim.
-- **Panels:** `dotfiles/eww/.config/eww/eww.yuck` (layout) and `eww.scss` (style).
-  Run `eww reload` to see changes. Data comes from `scripts/*.sh`.
-- **Globe:** `dotfiles/hud/.local/share/hud-globe/index.html` (plain canvas JS; add
-  cities to `CITIES`). For the original hex-tile globe see
-  [arscan/encom-globe](https://github.com/arscan/encom-globe).
+- **HUD layout and look:** `dotfiles/hud/.local/share/hud-shell/` (`hud.css`, `hud.js`).
+  Reload it with **Super+H** twice. Open `index.html` in any browser to preview it with
+  demo data.
+- **Column sizes:** `layout_for()` in `dotfiles/hud/.local/bin/hud-shell` (also mirrored
+  in `defaultLayout()` in `hud.js` for the browser preview).
+- **Terminal tabs:** `dotfiles/kitty/.config/kitty/tab_bar.py`.
+- **Globe cities / home marker:** `CITIES` and `TZ` in `hud.js`. The home marker comes
+  from your timezone, so no IP lookup is sent anywhere. The PING value pings `1.1.1.1`;
+  set `HUD_PING_HOST=…` in `~/.config/hud/local.env` to change it.
 - **Keybinds:** `dotfiles/openbox/.config/openbox/rc.xml`, then **Super+Shift+R**.
 - **Add a package:** put its name in `packages/base.txt` (repo or AUR, either works)
   and re-run `bootstrap.sh`.
@@ -258,12 +291,16 @@ unpatched Electron. Fine as eye candy; don't run it as your everyday shell.
 
 | Symptom | Fix |
 |---|---|
+| HUD blank or black, terminal fine | Run `HUD_DEBUG=1 hud-shell --quick` in a terminal (after **Super+H** to stop the running one) and read the errors. A WebKit GPU problem is fixed by adding the line `WEBKIT_DISABLE_DMABUF_RENDERER=1` to `~/.config/hud/local.env` and logging out and back in. Or switch to lite mode (section 10). |
+| Keyboard doesn't light up | `sudo pacman -S python-xlib`, then **Super+H** twice. |
+| FILESYSTEM doesn't follow `cd` | kitty needs the remote-control lines from this repo's `kitty.conf`: close all kitty windows and open a new one. |
+| Terminal covers the HUD columns | The HUD sets screen-edge reservations with `xprop` (package `xorg-xprop`). Check it's installed, then **Super+H** twice. |
 | Black screen / no transparency | picom's GPU backend failed. Autostart already retries with `--backend xrender`; check `picom --backend xrender` by hand. |
 | kitty won't open (old GPU or VM) | kitty needs OpenGL 3.3. Use `xterm` (installed, themed) or switch the Super+Enter bind. |
 | `eww: command not found` after bootstrap | The eww compile failed (usually out of memory on 4 GB laptops) and bootstrap only warned. Add swap and build with fewer jobs: `sudo mkswap -U clear --size 4G --file /swapfile`, `sudo swapon /swapfile`, `CARGO_BUILD_JOBS=2 yay -S eww`. Still failing: `yay -S eww-git`. |
 | archinstall hangs on "Time synchronization" or "keyring sync" | Network blocks NTP. Ctrl+C, then `archinstall --skip-ntp --skip-wkd`. If pacstrap then says the keyring is missing, on tty2 (Alt+F2) run `pacman-key --init` and `pacman-key --populate archlinux`, and retry. |
-| Panels missing | `eww logs` shows the error; `eww open-many left right dockbar`. |
-| Globe missing | Run `hud-globe-view 100 100 320 ~/.local/share/hud-globe/index.html` in a terminal to see the error (needs `webkit2gtk-4.1`, `python-gobject`). |
+| Lite panels missing | `eww logs` shows the error; `eww open-many left right dockbar`. |
+| Lite globe missing | Run `hud-globe-view 100 100 320 ~/.local/share/hud-globe/index.html` in a terminal to see the error (needs `webkit2gtk-4.1`, `python-gobject`). |
 | NVIDIA card, glitches | Stays on the open `nouveau` driver for portability. On a machine that keeps the drive, install `nvidia-open` — but that ties it to NVIDIA hosts. |
 | Wi-Fi not detected (Broadcom) | `sudo pacman -S broadcom-wl` |
 | Drive won't show in a PC's boot menu | Secure Boot off, UEFI mode on, and check `/boot/EFI/BOOT/BOOTX64.EFI` exists (`make-portable.sh` creates it). |
@@ -278,5 +315,6 @@ bootstrap.sh              packages + fonts + dotfiles + services (re-runnable)
 install/make-portable.sh  one-time fixes so the SSD boots on any PC
 packages/*.txt            what to install (repo and AUR mixed; hud-sync adds snapshots)
 dotfiles/<app>/...        mirrors $HOME, linked with GNU stow
-  openbox/  themes/  picom/  kitty/  rofi/  dunst/  eww/  x11/  hud/
+  openbox/  themes/  picom/  kitty/  rofi/  dunst/  eww/  x11/
+  hud/                    hud-shell (full HUD), lite helpers, globe, sync
 ```

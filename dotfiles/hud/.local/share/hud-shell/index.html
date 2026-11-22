@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ARCH // HUD</title>
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<div id="hud">
+
+  <!-- ───────────── left column: system ───────────── -->
+  <section id="left" class="col">
+    <header class="strip"><span>PANEL</span><span>SYSTEM</span></header>
+
+    <div class="mod clock-mod">
+      <div id="clock" class="clock glow">00:00:00</div>
+      <div class="stats s4">
+        <div><b id="c-year">----</b><i id="c-date">---</i></div>
+        <div><b>UPTIME</b><i id="c-up">-</i></div>
+        <div><b>TYPE</b><i id="c-type">linux</i></div>
+        <div><b>POWER</b><i id="c-power">-</i></div>
+      </div>
+    </div>
+
+    <div class="mod">
+      <div class="stats s3">
+        <div><b>MANUFACTURER</b><i id="hw-vendor">-</i></div>
+        <div><b>MODEL</b><i id="hw-model">-</i></div>
+        <div><b>CHASSIS</b><i id="hw-chassis">-</i></div>
+      </div>
+    </div>
+
+    <div class="mod">
+      <h2><span>CPU USAGE</span><em id="cpu-name">-</em></h2>
+      <div id="cpu-graphs"></div>
+      <div class="stats s4">
+        <div><b>TEMP</b><i id="cpu-temp">-</i></div>
+        <div><b>MIN</b><i id="cpu-min">-</i></div>
+        <div><b>MAX</b><i id="cpu-max">-</i></div>
+        <div><b>TASKS</b><i id="cpu-tasks">-</i></div>
+      </div>
+    </div>
+
+    <div class="mod">
+      <h2><span>MEMORY</span><em id="mem-text">-</em></h2>
+      <canvas id="mem-grid"></canvas>
+      <div class="swap"><b>SWAP</b><div class="bar"><i id="swap-bar"></i></div><em id="swap-text">-</em></div>
+    </div>
+
+    <div class="mod grow">
+      <h2><span>TOP PROCESSES</span><em>PID | NAME | CPU | MEM</em></h2>
+      <table id="procs"></table>
+    </div>
+  </section>
+
+  <!-- ───────────── centre: terminal frame (kitty sits inside) ───────────── -->
+  <section id="term">
+    <header class="strip">
+      <span>TERMINAL</span>
+      <span id="ws"></span>
+      <span id="term-title">MAIN SHELL</span>
+    </header>
+    <div id="term-frame"><i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+      <div id="term-idle">NO SHELL ATTACHED<br><small>SUPER + ENTER</small></div>
+    </div>
+  </section>
+
+  <!-- ───────────── right column: network ───────────── -->
+  <section id="right" class="col">
+    <header class="strip"><span>PANEL</span><span>NETWORK</span></header>
+
+    <div class="mod">
+      <h2><span>NETWORK STATUS</span><em id="net-if">Interface: -</em></h2>
+      <div class="stats s3">
+        <div><b>STATE</b><i id="net-state">-</i></div>
+        <div><b>IPv4</b><i id="net-ip">-</i></div>
+        <div><b>PING</b><i id="net-ping">-</i></div>
+      </div>
+    </div>
+
+    <div class="mod grow">
+      <h2><span>WORLD VIEW</span><em>GLOBAL NETWORK MAP</em></h2>
+      <h3><span>ENDPOINT LAT/LON</span><em id="geo">-</em></h3>
+      <div class="globe-wrap"><canvas id="globe"></canvas><div id="globe-off">GLOBE PAUSED</div></div>
+    </div>
+
+    <div class="mod">
+      <h2><span>NETWORK TRAFFIC</span><em>UP / DOWN, KB/S</em></h2>
+      <h3><span>TOTAL</span><em id="net-total">-</em></h3>
+      <canvas id="net-graph"></canvas>
+    </div>
+  </section>
+
+  <!-- ───────────── bottom left: filesystem ───────────── -->
+  <section id="fs" class="col">
+    <header class="strip"><span>FILESYSTEM</span><span id="fs-path">~</span></header>
+    <div id="fs-tools"><button id="fs-hidden" type="button">HIDDEN</button><span id="fs-count"></span></div>
+    <div id="fs-grid"></div>
+    <footer id="fs-foot"><span id="fs-mount">MOUNT -</span><div class="bar"><i id="fs-bar"></i></div><span id="fs-used">-</span></footer>
+  </section>
+
+  <!-- ───────────── bottom right: keyboard ───────────── -->
+  <section id="kb" class="col">
+    <header class="strip"><span>KEYBOARD</span><span id="kb-hint">SUPER+D LAUNCH · SUPER+ENTER SHELL · SUPER+H HUD · SUPER+K INPUT DISPLAY</span></header>
+    <div id="keys"></div>
+    <div id="keys-off">INPUT DISPLAY OFF</div>
+  </section>
+</div>
+
+<!-- boot sequence -->
+<div id="boot"><div id="boot-log"></div><div id="boot-logo"><div class="bl-line"></div><h1>ARCH <span>//</span> HUD</h1><p id="boot-sub">PORTABLE SYSTEM INTERFACE</p></div></div>
+
+<script src="hud.js"></script>
+</body>
+</html>

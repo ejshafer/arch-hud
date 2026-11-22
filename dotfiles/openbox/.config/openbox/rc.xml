@@ -55,6 +55,7 @@
     <keybind key="W-h"><action name="Execute"><command>hud-toggle</command></action></keybind>
     <keybind key="W-g"><action name="Execute"><command>hud-globe</command></action></keybind>
     <keybind key="W-e"><action name="Execute"><command>hud-edex</command></action></keybind>
+    <keybind key="W-k"><action name="Execute"><command>hud-shell --keys</command></action></keybind>
 
     <!-- windows -->
     <keybind key="W-q"><action name="Close"/></keybind>
@@ -130,6 +131,12 @@
     <context name="Iconify">
       <mousebind button="Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
       <mousebind button="Left" action="Click"><action name="Iconify"/></mousebind>
+    </context>
+
+    <!-- The full HUD is a desktop-type window: right-click it for the menu too. -->
+    <context name="Desktop">
+      <mousebind button="Right" action="Press"><action name="ShowMenu"><menu>root-menu</menu></action></mousebind>
+      <mousebind button="Middle" action="Press"><action name="ShowMenu"><menu>client-list-combined-menu</menu></action></mousebind>
     </context>
 
     <context name="Root">

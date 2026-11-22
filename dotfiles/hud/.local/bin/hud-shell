@@ -1,0 +1,880 @@
+#!/usr/bin/env python3
+"""ARCH // HUD shell: the full-screen eDEX-style desktop layer.
+
+Draws every HUD module (system, CPU, memory, processes, network, globe, filesystem,
+keyboard) as one WebKit page on a desktop-type window under all other windows, and
+reserves screen edges (struts) so Openbox maximises the terminal into the centre slot.
+
+usage:
+  hud-shell                 start (no-op if already running)
+  hud-shell --launch-term   start, then open the main kitty once the boot sequence ends
+  hud-shell --quick         start without the boot sequence
+  hud-shell --toggle        stop if running, else start (Super+H)
+  hud-shell --globe         pause / resume the globe animation (Super+G)
+  hud-shell --keys          turn the on-screen keyboard's key display off / on (Super+K)
+  hud-shell --check         exit 0 if GTK + WebKit2GTK 4.1 are importable (used by autostart)
+
+Privacy: key presses are read from X only to light up the drawn keyboard. Nothing is
+logged or stored, and Super+K switches it off (e.g. before typing a password in view
+of other people).
+"""
+import fcntl
+import json
+import os
+import re
+import shlex
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import threading
+import time
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/hud-{os.getuid()}"
+PIDFILE = os.path.join(RUNTIME, "hud-shell.pid")
+PAGE = os.path.expanduser("~/.local/share/hud-shell/index.html")
+HOME = os.path.expanduser("~")
+PING_HOST = os.environ.get("HUD_PING_HOST", "1.1.1.1")
+DEBUG = bool(os.environ.get("HUD_DEBUG"))
+SHELLS = {"bash", "zsh", "fish", "sh", "dash", "ksh", "nu", "xonsh"}
+FS_LIMIT = 400
+
+
+def log(*a):
+    print("[hud-shell]", *a, file=sys.stderr, flush=True)
+
+
+def read(path, default=""):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def running_pid():
+    try:
+        pid = int(read(PIDFILE, "0"))
+    except ValueError:
+        return 0
+    if pid and pid != os.getpid():
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                if b"hud-shell" in f.read():
+                    return pid
+        except OSError:
+            pass
+    return 0
+
+
+# ───────────────────────── layout (shared with the page) ─────────────────────────
+def layout_for(W, H):
+    pad, gap, head = 10, 10, 22
+    col = max(250, min(400, round(W * 0.17)))
+    bottom = max(210, min(380, round(H * 0.32)))
+    return {"W": W, "H": H, "pad": pad, "gap": gap, "head": head, "colW": col, "bottomH": bottom}
+
+
+def struts_for(L, ox, oy):
+    """_NET_WM_STRUT_PARTIAL values (relative to the root window) for this layout."""
+    left = ox + L["pad"] + L["colW"] + L["gap"]
+    right = left - ox  # assumes the HUD monitor touches the right root edge (single screen)
+    top = oy + L["pad"] + L["head"]
+    bottom = L["bottomH"] + L["pad"] + L["gap"]
+    y0, y1 = oy, oy + L["H"] - 1
+    x0, x1 = ox, ox + L["W"] - 1
+    return [left, right, top, bottom, y0, y1, y0, y1, x0, x1, x0, x1]
+
+
+# ───────────────────────── system readers ─────────────────────────
+CLK = os.sysconf("SC_CLK_TCK")
+PAGESZ = os.sysconf("SC_PAGE_SIZE")
+CHASSIS = {3: "Desktop", 4: "Desktop", 6: "Tower", 7: "Tower", 8: "Portable", 9: "Laptop", 10: "Notebook",
+           11: "Handheld", 13: "All-in-one", 14: "Sub-notebook", 30: "Tablet", 31: "Convertible", 32: "Detachable",
+           35: "Mini PC", 36: "Stick PC"}
+
+
+def cpu_times():
+    out = []
+    with open("/proc/stat") as f:
+        for line in f:
+            if line.startswith("cpu") and line[3].isdigit():
+                v = [int(x) for x in line.split()[1:9]]
+                out.append((sum(v), v[3] + v[4]))
+    return out
+
+
+def meminfo():
+    m = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            k, v = line.split(":", 1)
+            m[k] = int(v.split()[0]) * 1024
+    total = m.get("MemTotal", 1)
+    avail = m.get("MemAvailable", m.get("MemFree", 0))
+    cached = m.get("Cached", 0) + m.get("Buffers", 0) + m.get("SReclaimable", 0) - m.get("Shmem", 0)
+    used = total - avail
+    return {"total": total, "used": used, "cached": max(0, min(cached, total - used)),
+            "swapTotal": m.get("SwapTotal", 0), "swapFree": m.get("SwapFree", 0)}
+
+
+def cpu_freqs():
+    fs = []
+    base = "/sys/devices/system/cpu"
+    try:
+        for d in os.listdir(base):
+            if re.fullmatch(r"cpu\d+", d):
+                v = read(f"{base}/{d}/cpufreq/scaling_cur_freq")
+                if v.isdigit():
+                    fs.append(int(v) / 1e6)
+    except OSError:
+        pass
+    return fs
+
+
+def thermal_path():
+    best = None
+    try:
+        zones = sorted(os.listdir("/sys/class/thermal"))
+    except OSError:
+        zones = []
+    for z in zones:
+        if not z.startswith("thermal_zone"):
+            continue
+        t = read(f"/sys/class/thermal/{z}/type")
+        p = f"/sys/class/thermal/{z}/temp"
+        if t == "x86_pkg_temp":
+            return p
+        if best is None or t in ("acpitz", "TCPU", "cpu-thermal", "soc_thermal"):
+            best = p
+    if best:
+        return best
+    try:
+        for h in os.listdir("/sys/class/hwmon"):
+            if read(f"/sys/class/hwmon/{h}/name") in ("coretemp", "k10temp", "zenpower"):
+                return f"/sys/class/hwmon/{h}/temp1_input"
+    except OSError:
+        pass
+    return None
+
+
+def power():
+    base = "/sys/class/power_supply"
+    bat, ac = None, None
+    try:
+        for d in os.listdir(base):
+            t = read(f"{base}/{d}/type")
+            if t == "Battery" and bat is None:
+                cap = read(f"{base}/{d}/capacity")
+                bat = (cap, read(f"{base}/{d}/status"))
+            elif t == "Mains":
+                ac = ac or read(f"{base}/{d}/online") == "1"
+    except OSError:
+        pass
+    if not bat or not bat[0]:
+        return "AC" if ac is not False else "-"
+    cap, status = bat
+    if status == "Charging":
+        return f"{cap}% ▲"
+    if status == "Discharging":
+        return f"{cap}% ▼"
+    return f"{cap}% · AC" if ac else f"{cap}%"
+
+
+def tasks():
+    try:
+        return sum(1 for p in os.listdir("/proc") if p.isdigit())
+    except OSError:
+        return 0
+
+
+def proc_sample():
+    res = {}
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/stat", "rb") as f:
+                s = f.read().decode("utf-8", "replace")
+        except OSError:
+            continue
+        l, r = s.find("("), s.rfind(")")
+        rest = s[r + 2:].split()
+        if len(rest) < 22:
+            continue
+        res[int(pid)] = (s[l + 1:r], int(rest[11]) + int(rest[12]), int(rest[21]))
+    return res
+
+
+def default_iface():
+    try:
+        with open("/proc/net/route") as f:
+            next(f)
+            for line in f:
+                p = line.split()
+                if len(p) > 3 and p[1] == "00000000" and int(p[3], 16) & 2:
+                    return p[0]
+    except (OSError, StopIteration, ValueError):
+        pass
+    return None
+
+
+def ipv4(iface):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        packed = struct.pack("256s", iface[:15].encode())
+        return socket.inet_ntoa(fcntl.ioctl(s.fileno(), 0x8915, packed)[20:24])  # SIOCGIFADDR
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+def net_bytes(iface):
+    rx = read(f"/sys/class/net/{iface}/statistics/rx_bytes", "0")
+    tx = read(f"/sys/class/net/{iface}/statistics/tx_bytes", "0")
+    return int(rx or 0), int(tx or 0)
+
+
+def mounts():
+    out = []
+    try:
+        with open("/proc/mounts") as f:
+            for line in f:
+                p = line.split()
+                if len(p) >= 3:
+                    out.append((p[1].replace("\\040", " "), p[2]))
+    except OSError:
+        pass
+    return out
+
+
+def mount_of(path):
+    best = "/"
+    for mp, _ in mounts():
+        if (path == mp or path.startswith(mp.rstrip("/") + "/")) and len(mp) > len(best):
+            best = mp
+    return best
+
+
+def static_info():
+    cpu = "-"
+    for line in read("/proc/cpuinfo").splitlines():
+        if line.startswith("model name"):
+            cpu = line.split(":", 1)[1]
+            break
+    cpu = re.sub(r"\((R|TM|tm|r)\)|\bCPU\b|@.*$|\bProcessor\b|\d+-Core", "", cpu)
+    cpu = re.sub(r"\s+", " ", cpu).replace("Intel Core", "Core").strip()
+    ct = read("/sys/class/dmi/id/chassis_type")
+    tz = ""
+    try:
+        tz = os.readlink("/etc/localtime").split("zoneinfo/", 1)[-1]
+    except OSError:
+        tz = read("/etc/timezone")
+    vendor = read("/sys/class/dmi/id/sys_vendor") or "-"
+    return {
+        "host": socket.gethostname(),
+        "kernel": os.uname().release,
+        "vendor": vendor.split()[0].upper() if vendor != "-" else "-",
+        "model": read("/sys/class/dmi/id/product_name") or "-",
+        "chassis": CHASSIS.get(int(ct), "Other") if ct.isdigit() else "-",
+        "cpu": cpu or "-",
+        "cores": os.cpu_count() or 1,
+        "type": os.uname().sysname.lower(),
+        "tz": tz,
+    }
+
+
+def boot_lines(info):
+    lines = [read("/proc/version"), ""]
+    lines.append(f"[  OK  ] CPU {info['cpu']} x{info['cores']}")
+    m = meminfo()
+    lines.append(f"[  OK  ] Memory {m['total'] / 1073741824:.1f} GiB, swap {m['swapTotal'] / 1073741824:.1f} GiB")
+    mods = [l.split()[0] for l in read("/proc/modules").splitlines()[:70]]
+    for i, name in enumerate(mods):
+        lines.append(f"  [{i * 0.0173 + 0.41:10.6f}] module {name} loaded")
+        if i % 9 == 8:
+            lines.append(f"[  OK  ] Reached target stage {i // 9 + 1}")
+    for mp, fs in mounts():
+        if fs in ("ext4", "btrfs", "xfs", "vfat", "f2fs", "tmpfs") and not mp.startswith("/run/user"):
+            lines.append(f"[  OK  ] Mounted {mp} ({fs})")
+    try:
+        for iface in sorted(os.listdir("/sys/class/net")):
+            if iface != "lo":
+                lines.append(f"[  OK  ] Link {iface} {read(f'/sys/class/net/{iface}/operstate')}")
+    except OSError:
+        pass
+    lines += ["", f"[  OK  ] Session {os.environ.get('USER', '')}@{info['host']} on {os.environ.get('DISPLAY', '')}",
+              "[  OK  ] ARCH // HUD interface online"]
+    return lines
+
+
+FILE_TYPES = {}
+for _t, _exts in {
+    "img": "png jpg jpeg gif webp svg bmp tif tiff ico heic avif",
+    "vid": "mp4 mkv webm mov avi m4v",
+    "aud": "mp3 flac ogg wav m4a opus aac",
+    "arc": "zip tar gz xz zst bz2 7z rar tgz iso img deb rpm",
+    "doc": "pdf doc docx odt xls xlsx ods ppt pptx odp epub",
+    "code": "py js ts sh bash zsh c h cpp hpp rs go java rb lua json yml yaml toml xml html css scss yuck "
+            "conf ini cfg md txt log rasi vim mk cmake service desktop",
+}.items():
+    for _e in _exts.split():
+        FILE_TYPES[_e] = _t
+
+
+def list_dir(path, hidden):
+    entries, more, error = [], 0, None
+    if path != "/":
+        entries.append({"n": "..", "t": "up", "dir": True, "p": os.path.dirname(path.rstrip("/")) or "/"})
+    try:
+        with os.scandir(path) as it:
+            items = [e for e in it if hidden or not e.name.startswith(".")]
+    except OSError as e:
+        return entries, 0, f"CANNOT READ: {e.strerror.upper()}"
+    rows = []
+    for e in items:
+        try:
+            link = e.is_symlink()
+            isdir = e.is_dir()  # follows links
+            if link:
+                t = "l"
+            elif isdir:
+                t = "d"
+            else:
+                ext = e.name.rsplit(".", 1)[-1].lower() if "." in e.name else ""
+                t = "x" if os.access(e.path, os.X_OK) else FILE_TYPES.get(ext, "f")
+        except OSError:
+            isdir, t = False, "f"
+        rows.append((not isdir, e.name.lower(), {"n": e.name, "t": t, "dir": isdir, "p": e.path}))
+    rows.sort(key=lambda r: (r[0], r[1]))
+    if len(rows) > FS_LIMIT:
+        more = len(rows) - FS_LIMIT
+        rows = rows[:FS_LIMIT]
+    entries += [r[2] for r in rows]
+    return entries, more, error
+
+
+def disk_used(path):
+    try:
+        st = os.statvfs(path)
+        used = st.f_blocks - st.f_bfree
+        total = used + st.f_bavail
+        return round(used / total * 100, 1) if total else 0
+    except OSError:
+        return 0
+
+
+# ───────────────────────── kitty remote control ─────────────────────────
+def kitty_socket():
+    """Abstract socket of the main HUD kitty (listen_on unix:@kitty-hud-{kitty_pid})."""
+    found = []
+    try:
+        with open("/proc/net/unix") as f:
+            for line in f:
+                p = line.split()
+                if len(p) >= 8 and p[-1].startswith("@kitty-hud-"):
+                    pid = p[-1].rsplit("-", 1)[-1]
+                    if pid.isdigit() and os.path.exists(f"/proc/{pid}"):
+                        found.append(int(pid))
+    except OSError:
+        return None
+    if not found:
+        return None
+    for pid in sorted(set(found)):
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                if b"hud-term" in f.read():
+                    return f"unix:@kitty-hud-{pid}"
+        except OSError:
+            pass
+    return f"unix:@kitty-hud-{max(found)}"
+
+
+def kitten(sock, *args, stdin=None, timeout=3):
+    for exe in (["kitten", "@"], ["kitty", "@"]):
+        try:
+            r = subprocess.run([*exe, "--to", sock, *args], input=stdin, capture_output=True, timeout=timeout)
+            return r.stdout if r.returncode == 0 else None
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired:
+            return None
+    return None
+
+
+def kitty_state(sock):
+    out = kitten(sock, "ls")
+    if not out:
+        return None
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return None
+    osw = next((o for o in data if o.get("wm_class") == "hud-term"), None) or \
+        next((o for o in data if o.get("is_focused")), None) or (data[0] if data else None)
+    if not osw or not osw.get("tabs"):
+        return None
+    tabs = osw["tabs"]
+    ti = next((i for i, t in enumerate(tabs) if t.get("is_active")), 0)
+    tab = tabs[ti]
+    win = next((w for w in tab.get("windows", []) if w.get("is_active")), None) or (tab.get("windows") or [None])[0]
+    if not win:
+        return None
+    fg = win.get("foreground_processes") or []
+    cmd = (fg[-1].get("cmdline") or [""])[0] if fg else ""
+    cwd = (fg[-1].get("cwd") if fg else None) or win.get("cwd") or HOME
+    return {
+        "cwd": cwd,
+        "title": "MAIN SHELL" if ti == 0 else (tab.get("title") or f"SHELL {ti + 1}"),
+        "win": win.get("id"),
+        "shell": os.path.basename(cmd).lstrip("-") in SHELLS,
+    }
+
+
+# ───────────────────────── the app ─────────────────────────
+def main_gui(quick, launch_term):
+    import gi
+
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("WebKit2", "4.1")
+    from gi.repository import Gdk, GLib, Gtk, WebKit2
+
+    try:
+        gi.require_version("GdkX11", "3.0")
+        from gi.repository import GdkX11  # noqa: F401  (enables get_xid)
+    except (ValueError, ImportError):
+        pass
+
+    class App:
+        def __init__(self):
+            self.quick = quick
+            self.launch_term = launch_term
+            self.term_launched = False
+            self.loaded = False
+            self.started = False
+            self.keys_on = True
+            self.hidden = False
+            self.info = static_info()
+            self.temp_path = thermal_path()
+            self.prev_cpu = cpu_times()
+            self.prev_procs, self.prev_procs_t = proc_sample(), time.monotonic()
+            self.prev_net = None
+            self.ping = None
+            self.conn = {}
+            self.kitty = None
+            self.cwd = None
+            self.ws = {"count": 4, "current": 0}
+            self.lock = threading.Lock()
+            self.tickn = 0
+
+            disp = Gdk.Display.get_default()
+            mon = disp.get_primary_monitor() or disp.get_monitor(0)
+            g = mon.get_geometry()
+            self.geo = (g.x, g.y, g.width, g.height)
+            self.layout = layout_for(g.width, g.height)
+
+            # Main HUD surface: desktop-type window under everything, never focused.
+            self.win = Gtk.Window(title="ARCH // HUD")
+            self.win.set_wmclass("hud-shell", "HudShell")
+            self.win.set_type_hint(Gdk.WindowTypeHint.DESKTOP)
+            self.win.set_decorated(False)
+            self.win.set_skip_taskbar_hint(True)
+            self.win.set_skip_pager_hint(True)
+            self.win.set_accept_focus(False)
+            self.win.set_keep_below(True)
+            self.win.stick()
+            self.win.move(g.x, g.y)
+            self.win.set_default_size(g.width, g.height)
+            self.win.connect("destroy", lambda *_: Gtk.main_quit())
+
+            ucm = WebKit2.UserContentManager()
+            ucm.register_script_message_handler("hud")
+            ucm.connect("script-message-received::hud", self.on_message)
+            self.view = WebKit2.WebView.new_with_user_content_manager(ucm)
+            st = self.view.get_settings()
+            st.set_enable_developer_extras(DEBUG)
+            st.set_enable_write_console_messages_to_stdout(DEBUG)
+            self.view.set_background_color(Gdk.RGBA(0.02, 0.03, 0.05, 1))
+            self.view.connect("web-process-terminated", self.on_crash)
+            self.view.connect("context-menu", lambda *_: True)  # no "Reload / Inspect" menu
+            self.win.add(self.view)
+
+            # Struts holder: tiny dock window that reserves the HUD columns, so Openbox
+            # maximises the terminal into the centre slot.
+            self.strut = Gtk.Window(title="hud-struts")
+            self.strut.set_wmclass("hud-struts", "HudStruts")
+            self.strut.set_type_hint(Gdk.WindowTypeHint.DOCK)
+            self.strut.set_decorated(False)
+            self.strut.set_accept_focus(False)
+            self.strut.set_skip_taskbar_hint(True)
+            self.strut.set_skip_pager_hint(True)
+            self.strut.set_default_size(1, 1)
+            self.strut.move(g.x, g.y)
+            self.strut.stick()
+            self.strut.realize()
+            self.set_struts()
+            self.strut.show()
+            self.strut.set_opacity(0.0)
+
+            self.load()
+            self.win.show_all()
+            self.win.move(g.x, g.y)
+
+            Gdk.Screen.get_default().connect("monitors-changed", self.on_monitors)
+            GLib.timeout_add(1000, self.tick)
+            threading.Thread(target=self.slow_loop, daemon=True).start()
+            threading.Thread(target=self.ping_loop, daemon=True).start()
+            threading.Thread(target=self.key_loop, daemon=True).start()
+            if launch_term:
+                GLib.timeout_add_seconds(9, self.ensure_terminal)  # fallback if the page never boots
+
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self.quit)
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.quit)
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, self.on_globe)
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2, self.on_keys)
+
+        # ── plumbing ──
+        def load(self):
+            uri = GLib.filename_to_uri(PAGE, None) + ("?quick=1" if self.quick or self.started else "")
+            self.loaded = False
+            self.view.load_uri(uri)
+
+        def js(self, code):
+            if not self.loaded:
+                return False
+            try:
+                self.view.evaluate_javascript(code, -1, None, None, None, None, None)
+            except (AttributeError, TypeError):
+                self.view.run_javascript(code, None, None, None)
+            return False
+
+        def call(self, fn, data):
+            self.js(f"window.hud && hud.{fn}({json.dumps(data)})")
+            return False
+
+        def idle_call(self, fn, data):
+            GLib.idle_add(self.call, fn, data)
+
+        def set_struts(self):
+            xw = self.strut.get_window()
+            if xw is None or not hasattr(xw, "get_xid"):
+                log("cannot set struts (no X11 window id)")
+                return
+            vals = struts_for(self.layout, self.geo[0], self.geo[1])
+            xid = str(xw.get_xid())
+            for prop, v in (("_NET_WM_STRUT_PARTIAL", vals), ("_NET_WM_STRUT", vals[:4])):
+                try:
+                    subprocess.run(["xprop", "-id", xid, "-f", prop, "32c", "-set", prop, ",".join(map(str, v))],
+                                   check=False, timeout=3)
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    log("xprop missing; the terminal will not avoid the HUD columns")
+                    return
+
+        def on_monitors(self, *_):
+            disp = Gdk.Display.get_default()
+            mon = disp.get_primary_monitor() or disp.get_monitor(0)
+            g = mon.get_geometry()
+            self.geo = (g.x, g.y, g.width, g.height)
+            self.layout = layout_for(g.width, g.height)
+            self.win.move(g.x, g.y)
+            self.win.resize(g.width, g.height)
+            self.set_struts()
+            self.call("init", {"layout": self.layout, "info": self.info, "started": True, "keysOn": self.keys_on})
+
+        def on_crash(self, *_):
+            log("web process died; reloading")
+            GLib.timeout_add_seconds(2, lambda: (self.load(), False)[1])
+
+        def quit(self, *_):
+            Gtk.main_quit()
+            return False
+
+        def on_globe(self, *_):
+            self.js("window.hud && hud.toggleGlobe()")
+            return True
+
+        def on_keys(self, *_):
+            self.keys_on = not self.keys_on
+            self.call("keysEnabled", self.keys_on)
+            return True
+
+        # ── messages from the page ──
+        def on_message(self, _ucm, res):
+            try:
+                val = res.get_js_value() if hasattr(res, "get_js_value") else res
+                msg = json.loads(val.to_string())
+            except Exception as e:  # noqa: BLE001
+                log("bad message", e)
+                return
+            cmd = msg.get("cmd")
+            if cmd == "ready":
+                self.loaded = True
+                self.call("init", {"layout": self.layout, "info": self.info, "started": self.started,
+                                   "keysOn": self.keys_on, "boot": [] if self.started else boot_lines(self.info)})
+                self.call("ws", self.ws)
+                self.push_fs()
+                self.tick(force=True)
+            elif cmd == "booted":
+                self.started = True
+                if self.launch_term:
+                    self.ensure_terminal()
+            elif cmd == "cd":
+                threading.Thread(target=self.cd, args=(msg.get("path", ""),), daemon=True).start()
+            elif cmd == "open":
+                self.open_file(msg.get("path", ""))
+            elif cmd == "hidden":
+                self.hidden = bool(msg.get("on"))
+                threading.Thread(target=self.push_fs, daemon=True).start()
+            elif cmd == "ws":
+                n = msg.get("n")
+                if isinstance(n, int):
+                    subprocess.Popen(["wmctrl", "-s", str(n)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def ensure_terminal(self):
+            if self.term_launched:
+                return False
+            self.term_launched = True
+            if kitty_socket():
+                return False
+            try:
+                subprocess.Popen(["kitty", "--class", "hud-term"], cwd=HOME, start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except FileNotFoundError:
+                try:
+                    subprocess.Popen(["xterm", "-class", "hud-term"], cwd=HOME, start_new_session=True)
+                except FileNotFoundError:
+                    log("no terminal found")
+            return False
+
+        def cd(self, path):
+            path = os.path.realpath(path)
+            if not os.path.isdir(path):
+                return
+            sock = kitty_socket()
+            state = kitty_state(sock) if sock else None
+            if not state:
+                self.cwd = path  # no shell to drive: just browse
+                self.push_fs()
+                return
+            if not state["shell"]:
+                self.idle_call("fs", {**self.fs_payload(path), "error": "SHELL BUSY: FINISH THE RUNNING PROGRAM FIRST"})
+                return
+            text = f"\x05\x15cd -- {shlex.quote(path)}\r".encode()
+            kitten(sock, "send-text", "--match", f"id:{state['win']}", "--stdin", stdin=text)
+            kitten(sock, "focus-window", "--match", f"id:{state['win']}")
+
+        def open_file(self, path):
+            if not os.path.exists(path):
+                return
+            try:
+                subprocess.Popen(["xdg-open", path], start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except FileNotFoundError:
+                log("xdg-open missing (pacman -S xdg-utils)")
+
+        def fs_payload(self, path):
+            entries, more, error = list_dir(path, self.hidden)
+            return {"cwd": path.replace(HOME, "~", 1) if path.startswith(HOME) else path,
+                    "entries": entries, "more": more, "error": error,
+                    "mount": mount_of(path), "used": disk_used(path)}
+
+        def push_fs(self):
+            path = self.cwd or HOME
+            self.idle_call("fs", self.fs_payload(path))
+
+        # ── fast data, every second on the GTK loop ──
+        def tick(self, force=False):
+            self.tickn += 1
+            t = {}
+            cur = cpu_times()
+            usage = []
+            for (tot, idle), (ptot, pidle) in zip(cur, self.prev_cpu):
+                dt = tot - ptot
+                usage.append(round(100 * (1 - (idle - pidle) / dt), 1) if dt > 0 else 0)
+            self.prev_cpu = cur
+            t["cpu"] = usage
+            fr = cpu_freqs()
+            if fr:
+                t["fmin"], t["fmax"] = min(fr), max(fr)
+            if self.temp_path:
+                v = read(self.temp_path)
+                if v.lstrip("-").isdigit():
+                    t["temp"] = int(v) / 1000
+            t["tasks"] = tasks()
+            up = read("/proc/uptime").split()
+            if up:
+                t["uptime"] = float(up[0])
+            t["power"] = power()
+            t["mem"] = meminfo()
+
+            iface = default_iface()
+            net = {"iface": iface, "ping": self.ping, "rx": 0, "tx": 0, "rxTotal": 0, "txTotal": 0}
+            if iface:
+                rx, tx = net_bytes(iface)
+                now = time.monotonic()
+                if self.prev_net and self.prev_net[0] == iface:
+                    dt = max(0.2, now - self.prev_net[3])
+                    net["rx"], net["tx"] = max(0, (rx - self.prev_net[1]) / dt), max(0, (tx - self.prev_net[2]) / dt)
+                self.prev_net = (iface, rx, tx, now)
+                net.update(rxTotal=rx, txTotal=tx, ip=ipv4(iface), wifi=os.path.isdir(f"/sys/class/net/{iface}/wireless"))
+            else:
+                self.prev_net = None
+            t["net"] = net
+            self.call("tick", t)
+
+            if force or self.tickn % 2 == 0:
+                self.call("procs", self.top_procs())
+            return True
+
+        def top_procs(self):
+            now = time.monotonic()
+            cur = proc_sample()
+            dt = max(0.1, now - self.prev_procs_t)
+            ncpu = self.info["cores"] or 1
+            total = meminfo()["total"]
+            rows = []
+            for pid, (name, ticks, rss) in cur.items():
+                prev = self.prev_procs.get(pid)
+                d = ticks - prev[1] if prev else 0
+                rows.append({"pid": pid, "name": name, "cpu": max(0.0, d / (dt * CLK) * 100 / ncpu),
+                             "mem": rss * PAGESZ / total * 100})
+            self.prev_procs, self.prev_procs_t = cur, now
+            rows.sort(key=lambda r: (r["cpu"], r["mem"]), reverse=True)
+            return rows[:12]
+
+        # ── slow data on a worker thread (subprocess calls) ──
+        def slow_loop(self):
+            last_ws = None
+            last_term = None
+            while True:
+                try:
+                    sock = kitty_socket()
+                    state = kitty_state(sock) if sock else None
+                    term = {"title": state["title"] if state else "MAIN SHELL", "attached": bool(state)}
+                    if term != last_term:
+                        last_term = term
+                        self.idle_call("term", term)
+                    cwd = state["cwd"] if state else (self.cwd or HOME)
+                    if state and cwd != self.cwd:
+                        self.cwd = cwd
+                        self.push_fs()
+                    ws = self.read_ws()
+                    if ws and ws != last_ws:
+                        last_ws = self.ws = ws
+                        self.idle_call("ws", ws)
+                except Exception as e:  # noqa: BLE001  keep the HUD alive whatever happens
+                    log("slow loop:", e)
+                time.sleep(1.2)
+
+        @staticmethod
+        def read_ws():
+            try:
+                out = subprocess.run(["xprop", "-root", "_NET_CURRENT_DESKTOP", "_NET_NUMBER_OF_DESKTOPS"],
+                                     capture_output=True, text=True, timeout=2).stdout
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                return None
+            nums = re.findall(r"= (\d+)", out)
+            if len(nums) < 2:
+                return None
+            return {"current": int(nums[0]), "count": max(1, min(10, int(nums[1])))}
+
+        def ping_loop(self):
+            while True:
+                try:
+                    out = subprocess.run(["ping", "-c", "1", "-W", "2", PING_HOST],
+                                         capture_output=True, text=True, timeout=5).stdout
+                    m = re.search(r"time=([\d.]+)", out)
+                    self.ping = float(m.group(1)) if m else None
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    self.ping = None
+                time.sleep(15)
+
+        # ── keyboard: light up the drawn keys (X RECORD, display only) ──
+        def key_loop(self):
+            try:
+                from Xlib import X, display
+                from Xlib.ext import record
+                from Xlib.protocol import rq
+            except ImportError:
+                log("python-xlib not installed: the keyboard will not light up (pacman -S python-xlib)")
+                return
+            try:
+                rec, loc = display.Display(), display.Display()
+                if not rec.has_extension("RECORD"):
+                    log("X RECORD extension unavailable; keyboard display off")
+                    return
+                ctx = rec.record_create_context(0, [record.AllClients], [{
+                    "core_requests": (0, 0), "core_replies": (0, 0), "ext_requests": (0, 0, 0, 0),
+                    "ext_replies": (0, 0, 0, 0), "delivered_events": (0, 0),
+                    "device_events": (X.KeyPress, X.KeyRelease), "errors": (0, 0),
+                    "client_started": False, "client_died": False}])
+            except Exception as e:  # noqa: BLE001
+                log("keyboard capture unavailable:", e)
+                return
+
+            def cb(reply):
+                if reply.category != record.FromServer or reply.client_swapped or not reply.data:
+                    return
+                if reply.data[0] < 2:
+                    return
+                data = reply.data
+                while len(data):
+                    ev, data = rq.EventField(None).parse_binary_value(data, loc.display, None, None)
+                    if self.keys_on and ev.type in (X.KeyPress, X.KeyRelease):
+                        GLib.idle_add(self.js, f"window.hud && hud.key({int(ev.detail)},{1 if ev.type == X.KeyPress else 0})")
+
+            try:
+                rec.record_enable_context(ctx, cb)
+            except Exception as e:  # noqa: BLE001
+                log("keyboard capture stopped:", e)
+
+    App()
+    Gtk.main()
+
+
+def main():
+    args = set(sys.argv[1:])
+    if "--check" in args:
+        try:
+            import gi
+
+            gi.require_version("Gtk", "3.0")
+            gi.require_version("WebKit2", "4.1")
+            from gi.repository import Gtk, WebKit2  # noqa: F401
+        except Exception as e:  # noqa: BLE001
+            log("unavailable:", e)
+            sys.exit(1)
+        sys.exit(0 if os.path.exists(PAGE) and os.environ.get("DISPLAY") else 1)
+
+    pid = running_pid()
+    for flag, sig in (("--globe", signal.SIGUSR1), ("--keys", signal.SIGUSR2)):
+        if flag in args:
+            if pid:
+                os.kill(pid, sig)
+            sys.exit(0)
+    if "--toggle" in args:
+        if pid:
+            os.kill(pid, signal.SIGTERM)
+            sys.exit(0)
+        args.add("--quick")
+    elif pid:
+        sys.exit(0)
+
+    os.makedirs(RUNTIME, exist_ok=True)
+    with open(PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
+    try:
+        main_gui(quick="--quick" in args, launch_term="--launch-term" in args)
+    finally:
+        if read(PIDFILE) == str(os.getpid()):
+            try:
+                os.remove(PIDFILE)
+            except OSError:
+                pass
+
+
+if __name__ == "__main__":
+    main()

@@ -2,7 +2,6 @@
 # Run by openbox-session at login.
 
 xsetroot -cursor_name left_ptr
-hud-wall
 
 # Compositor: transparency, fades, blur. Falls back to the CPU renderer on
 # machines/VMs where the OpenGL backend won't start.
@@ -10,11 +9,16 @@ picom -b 2>/dev/null || picom -b --backend xrender &
 
 dunst &
 
-# HUD side panels + bottom bar (eww widgets).
-eww daemon
-sleep 0.5
-eww open-many left right dockbar &
-
-# Globe in the lower-right column, then the main shell in the centre.
-(sleep 1.5 && hud-globe --on) &
-(sleep 1 && kitty --class hud-term) &
+# Full HUD (default): one eDEX-style surface with every module, which also opens the
+# main shell when its boot sequence ends. Lite HUD: eww panels + globe, for slow
+# machines or if WebKit misbehaves. Pick with HUD_MODE=lite in ~/.config/hud/local.env.
+if [ "${HUD_MODE:-full}" != lite ] && hud-shell --check 2>/dev/null; then
+  hud-shell --launch-term &
+else
+  hud-wall
+  eww daemon
+  sleep 0.5
+  eww open-many left right dockbar &
+  (sleep 1.5 && hud-globe --on) &
+  (sleep 1 && kitty --class hud-term) &
+fi

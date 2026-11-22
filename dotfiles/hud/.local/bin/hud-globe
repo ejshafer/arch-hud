@@ -5,6 +5,11 @@
 
 page="$HOME/.local/share/hud-globe/index.html"
 
+# Full HUD: the globe lives inside hud-shell; just pause / resume it.
+if [[ -f "${XDG_RUNTIME_DIR:-/tmp}/hud-shell.pid" ]] && command -v hud-shell >/dev/null; then
+  exec hud-shell --globe
+fi
+
 if pgrep -f hud-globe-view >/dev/null; then
   [[ "$1" == "--on" ]] && exit 0
   pkill -f hud-globe-view

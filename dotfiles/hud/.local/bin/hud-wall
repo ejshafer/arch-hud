@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Paint the root window with a faint HUD dot-grid (tiled 48x48 image)."""
+import os
+import subprocess
+
+TILE = 48
+BG = (5, 8, 13)        # #05080d
+DOT = (22, 34, 40)     # faint cyan-grey
+CROSS = (38, 56, 62)   # small corner ticks
+
+path = os.path.expanduser("~/.cache/hud-wall.ppm")
+os.makedirs(os.path.dirname(path), exist_ok=True)
+
+px = bytearray()
+for y in range(TILE):
+    for x in range(TILE):
+        c = BG
+        if x % 12 == 0 and y % 12 == 0:
+            c = DOT
+        if (x == 0 and y < 5) or (y == 0 and x < 5) or (x == 0 and y > TILE - 5) or (y == 0 and x > TILE - 5):
+            c = CROSS
+        px += bytes(c)
+
+with open(path, "wb") as f:
+    f.write(f"P6 {TILE} {TILE} 255\n".encode())
+    f.write(px)
+
+try:
+    subprocess.run(["feh", "--no-fehbg", "--bg-tile", path], check=True)
+except (FileNotFoundError, subprocess.CalledProcessError):
+    try:
+        subprocess.run(["xsetroot", "-solid", "#05080d"], check=False)
+    except FileNotFoundError:
+        pass

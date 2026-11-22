@@ -1,0 +1,3 @@
+# Sourced by openbox-session before autostart.
+export PATH="$HOME/.local/bin:$PATH"
+[ -f "$HOME/.config/hud/repo.env" ] && . "$HOME/.config/hud/repo.env" && export HUD_REPO

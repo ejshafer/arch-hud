@@ -1,0 +1,4 @@
+# AUR packages (built locally by yay).
+# eww builds from Rust source, so the first install takes several minutes.
+# If it fails to build, swap it for eww-git.
+eww

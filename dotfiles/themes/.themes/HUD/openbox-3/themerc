@@ -1,0 +1,99 @@
+# HUD — Openbox theme. Palette taken from eDEX-UI's "tron" theme.
+#   cyan  #aacfd1   ink  #05080d   line  #262828   dim  #4f6566
+
+border.width: 1
+padding.width: 8
+padding.height: 4
+window.handle.width: 0
+window.client.padding.width: 0
+window.client.padding.height: 0
+menu.overlap.x: 0
+menu.overlap.y: 0
+
+window.active.border.color: #aacfd1
+window.inactive.border.color: #262828
+window.active.client.color: #05080d
+window.inactive.client.color: #05080d
+
+window.active.title.bg: flat solid
+window.active.title.bg.color: #05080d
+window.inactive.title.bg: flat solid
+window.inactive.title.bg.color: #05080d
+window.active.title.separator.color: #262828
+window.inactive.title.separator.color: #262828
+
+window.active.label.bg: parentrelative
+window.active.label.text.color: #aacfd1
+window.inactive.label.bg: parentrelative
+window.inactive.label.text.color: #4f6566
+window.label.text.justify: left
+
+window.active.button.unpressed.bg: flat solid
+window.active.button.unpressed.bg.color: #05080d
+window.active.button.unpressed.image.color: #aacfd1
+window.active.button.hover.bg: flat solid
+window.active.button.hover.bg.color: #262828
+window.active.button.hover.image.color: #e8f6f7
+window.active.button.pressed.bg: flat solid
+window.active.button.pressed.bg.color: #aacfd1
+window.active.button.pressed.image.color: #05080d
+window.active.button.disabled.bg: flat solid
+window.active.button.disabled.bg.color: #05080d
+window.active.button.disabled.image.color: #262828
+window.active.button.toggled.bg: flat solid
+window.active.button.toggled.bg.color: #05080d
+window.active.button.toggled.image.color: #aacfd1
+
+window.inactive.button.unpressed.bg: flat solid
+window.inactive.button.unpressed.bg.color: #05080d
+window.inactive.button.unpressed.image.color: #4f6566
+window.inactive.button.hover.bg: flat solid
+window.inactive.button.hover.bg.color: #262828
+window.inactive.button.hover.image.color: #aacfd1
+window.inactive.button.pressed.bg: flat solid
+window.inactive.button.pressed.bg.color: #aacfd1
+window.inactive.button.pressed.image.color: #05080d
+window.inactive.button.disabled.bg: flat solid
+window.inactive.button.disabled.bg.color: #05080d
+window.inactive.button.disabled.image.color: #262828
+window.inactive.button.toggled.bg: flat solid
+window.inactive.button.toggled.bg.color: #05080d
+window.inactive.button.toggled.image.color: #4f6566
+
+window.active.handle.bg: flat solid
+window.active.handle.bg.color: #05080d
+window.inactive.handle.bg: flat solid
+window.inactive.handle.bg.color: #05080d
+window.active.grip.bg: flat solid
+window.active.grip.bg.color: #05080d
+window.inactive.grip.bg: flat solid
+window.inactive.grip.bg.color: #05080d
+
+menu.border.width: 1
+menu.border.color: #aacfd1
+menu.separator.color: #262828
+menu.separator.width: 1
+menu.separator.padding.width: 6
+menu.separator.padding.height: 3
+menu.title.bg: flat solid
+menu.title.bg.color: #05080d
+menu.title.text.color: #4f6566
+menu.title.text.justify: left
+menu.items.bg: flat solid
+menu.items.bg.color: #05080d
+menu.items.text.color: #aacfd1
+menu.items.disabled.text.color: #4f6566
+menu.items.active.bg: flat solid
+menu.items.active.bg.color: #aacfd1
+menu.items.active.text.color: #05080d
+
+osd.border.width: 1
+osd.border.color: #aacfd1
+osd.bg: flat solid
+osd.bg.color: #05080d
+osd.label.bg: parentrelative
+osd.label.text.color: #aacfd1
+osd.hilight.bg: flat solid
+osd.hilight.bg.color: #aacfd1
+osd.unhilight.bg: flat solid
+osd.unhilight.bg.color: #262828

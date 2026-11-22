@@ -1,0 +1,20 @@
+#!/bin/sh
+# Run by openbox-session at login.
+
+xsetroot -cursor_name left_ptr
+hud-wall
+
+# Compositor: transparency, fades, blur. Falls back to the CPU renderer on
+# machines/VMs where the OpenGL backend won't start.
+picom -b 2>/dev/null || picom -b --backend xrender &
+
+dunst &
+
+# HUD side panels + bottom bar (eww widgets).
+eww daemon
+sleep 0.5
+eww open-many left right dockbar &
+
+# Globe in the lower-right column, then the main shell in the centre.
+(sleep 1.5 && hud-globe --on) &
+(sleep 1 && kitty --class hud-term) &

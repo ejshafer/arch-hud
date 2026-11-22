@@ -1,0 +1,13 @@
+! Cursor + fallback terminal (xterm) in the HUD palette.
+Xcursor.size: 24
+Xft.antialias: true
+Xft.hinting: true
+Xft.hintstyle: hintslight
+Xft.rgba: rgb
+
+XTerm*faceName: Fira Mono
+XTerm*faceSize: 11
+XTerm*background: #05080d
+XTerm*foreground: #aacfd1
+XTerm*cursorColor: #aacfd1
+XTerm*internalBorder: 12

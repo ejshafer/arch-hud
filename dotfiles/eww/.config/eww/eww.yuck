@@ -1,0 +1,126 @@
+;; arch-hud — eDEX-style side panels for eww (https://github.com/elkowar/eww)
+;; Layout:  [ left: clock / system / cpu / memory / processes ]  [ terminal ]  [ right: network / traffic / disk + globe below ]
+;; Reload after editing:  eww reload
+
+;; ───────────────────────── data ─────────────────────────
+(defpoll clock :interval "1s" "date '+%H:%M:%S'")
+(defpoll today :interval "60s" "date '+%Y  %b  %d  %a' | tr a-z A-Z")
+
+(defpoll sys :interval "20s"
+  :initial '{"host":"-","kernel":"-","uptime":"-","model":"-","cpu":"-","power":"-","disk_pct":0,"disk_free":"-"}'
+  "~/.config/eww/scripts/sysinfo.sh")
+
+(defpoll net :interval "2s"
+  :initial '{"iface":"-","conn":"-","state":"OFFLINE","ip":"-","down":0,"up":0,"down_h":"0 B/s","up_h":"0 B/s"}'
+  "~/.config/eww/scripts/net.sh")
+
+(defpoll procs :interval "3s" "~/.config/eww/scripts/procs.sh")
+(defpoll ws :interval "1s" :initial "0" "~/.config/eww/scripts/ws.sh")
+(defvar wslist "[0, 1, 2, 3]")
+
+;; ─────────────────────── building blocks ───────────────────────
+(defwidget section [title]
+  (box :class "section" :orientation "v" :space-evenly false :spacing 5
+    (box :class "section-head" :space-evenly false
+      (label :class "section-title" :xalign 0 :hexpand true :text title)
+      (label :class "section-tick" :text "◢"))
+    (children)))
+
+(defwidget row [k v]
+  (box :class "row" :space-evenly false
+    (label :class "k" :xalign 0 :hexpand true :text k)
+    (label :class "v" :xalign 1 :limit-width 26 :text v)))
+
+;; ───────────────────────── left panel ─────────────────────────
+(defwidget left-panel []
+  (box :class "panel" :orientation "v" :space-evenly false :spacing 16
+    (box :class "clock-box" :orientation "v" :space-evenly false
+      (label :class "clock" :xalign 0 :text clock)
+      (label :class "date" :xalign 0 :text today))
+
+    (section :title "SYSTEM"
+      (row :k "HOST" :v {sys.host})
+      (row :k "KERNEL" :v {sys.kernel})
+      (row :k "UPTIME" :v {sys.uptime})
+      (row :k "MODEL" :v {sys.model})
+      (row :k "POWER" :v {sys.power}))
+
+    (section :title "CPU USAGE"
+      (row :k {sys.cpu} :v "${round(EWW_CPU.avg, 0)}%")
+      (graph :class "graph" :height 46 :value {EWW_CPU.avg}
+             :time-range "60s" :min 0 :max 100 :dynamic false
+             :thickness 1.5 :line-style "round")
+      (box :class "cores" :space-evenly true :spacing 2
+        (for core in {EWW_CPU.cores}
+          (progress :class "core" :orientation "v" :flipped true :value {core.usage}))))
+
+    (section :title "MEMORY"
+      (row :k "USED"
+           :v "${round(EWW_RAM.used_mem / 1073741824, 1)} / ${round(EWW_RAM.total_mem / 1073741824, 1)} GiB")
+      (progress :class "bar" :value {EWW_RAM.used_mem_perc})
+      (row :k "SWAP"
+           :v "${round((EWW_RAM.total_swap - EWW_RAM.free_swap) / 1073741824, 1)} GiB"))
+
+    (section :title "TOP PROCESSES"
+      (label :class "procs" :xalign 0 :text procs))))
+
+;; ───────────────────────── right panel ─────────────────────────
+(defwidget right-panel []
+  (box :class "panel" :orientation "v" :space-evenly false :spacing 16
+    (section :title "NETWORK STATUS"
+      (row :k "STATE" :v {net.state})
+      (row :k "INTERFACE" :v {net.iface})
+      (row :k "CONNECTION" :v {net.conn})
+      (row :k "IPv4" :v {net.ip}))
+
+    (section :title "NETWORK TRAFFIC"
+      (row :k "▼ DOWN" :v {net.down_h})
+      (graph :class "graph" :height 40 :value {net.down}
+             :time-range "60s" :min 0 :max 1 :dynamic true :thickness 1.5)
+      (row :k "▲ UP" :v {net.up_h})
+      (graph :class "graph alt" :height 40 :value {net.up}
+             :time-range "60s" :min 0 :max 1 :dynamic true :thickness 1.5))
+
+    (section :title "FILESYSTEM  /"
+      (row :k "USED" :v "${sys.disk_pct}%   ${sys.disk_free} FREE")
+      (progress :class "bar" :value {sys.disk_pct}))))
+
+;; ───────────────────────── bottom bar ─────────────────────────
+(defwidget dockbar-widget []
+  (box :class "dockbar" :space-evenly false :spacing 18 :halign "center"
+    (label :class "k" :text "ARCH // HUD")
+    (box :class "ws" :space-evenly false :spacing 4
+      (for i in wslist
+        (button :class {ws == i ? "ws-btn active" : "ws-btn"}
+                :onclick "wmctrl -s ${i}"
+                (label :text "0${i + 1}"))))
+    (label :class "k" :text "SUPER+D LAUNCH   SUPER+⏎ SHELL   SUPER+G GLOBE")))
+
+;; ───────────────────────── windows ─────────────────────────
+;; "dock" windows with struts: Openbox keeps maximised windows out of these columns.
+(defwindow left
+  :monitor 0
+  :geometry (geometry :x "16px" :y "0px" :width "320px" :height "92%" :anchor "center left")
+  :stacking "fg"
+  :windowtype "dock"
+  :wm-ignore false
+  :reserve (struts :distance "352px" :side "left")
+  (left-panel))
+
+(defwindow right
+  :monitor 0
+  :geometry (geometry :x "16px" :y "16px" :width "320px" :height "52%" :anchor "top right")
+  :stacking "fg"
+  :windowtype "dock"
+  :wm-ignore false
+  :reserve (struts :distance "352px" :side "right")
+  (right-panel))
+
+(defwindow dockbar
+  :monitor 0
+  :geometry (geometry :x "0px" :y "0px" :width "900px" :height "30px" :anchor "bottom center")
+  :stacking "fg"
+  :windowtype "dock"
+  :wm-ignore false
+  :reserve (struts :distance "40px" :side "bottom")
+  (dockbar-widget))

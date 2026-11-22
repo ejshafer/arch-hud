@@ -1,0 +1,5 @@
+# Not installed by bootstrap.sh (it only reads *.txt).
+# eDEX-UI itself: archived upstream in Oct 2021, bundles an old Electron.
+# Fine for the look, don't use it as your main shell for anything sensitive.
+#   yay -S edex-ui-bin
+edex-ui-bin

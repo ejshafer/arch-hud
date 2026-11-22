@@ -1,0 +1,47 @@
+/* rofi — app launcher (Super+D) styled as a HUD query box */
+configuration {
+  modi: "drun,run,window";
+  show-icons: false;
+  font: "Fira Mono 11";
+  drun-display-format: "{name}";
+  display-drun: "LAUNCH";
+  display-run: "EXEC";
+  display-window: "WINDOWS";
+}
+
+* {
+  ink: #05080dee;
+  cyan: #aacfd1;
+  dim: #4f6566;
+  line: #262828;
+  background-color: transparent;
+  text-color: @cyan;
+}
+
+window {
+  width: 560px;
+  background-color: @ink;
+  border: 1px;
+  border-color: @cyan;
+  padding: 18px;
+}
+
+mainbox { children: [ inputbar, listview ]; spacing: 12px; }
+
+inputbar {
+  children: [ prompt, textbox-sep, entry ];
+  spacing: 8px;
+  padding: 0 0 8px 0;
+  border: 0 0 1px 0;
+  border-color: @line;
+}
+textbox-sep { expand: false; str: "//"; text-color: @dim; }
+prompt { text-color: @cyan; }
+entry { placeholder: "QUERY"; placeholder-color: @dim; }
+
+listview { lines: 8; columns: 1; fixed-height: false; scrollbar: false; }
+element { padding: 5px 8px; }
+element normal.normal { text-color: @cyan; }
+element alternate.normal { text-color: @cyan; }
+element selected.normal { background-color: @cyan; text-color: #05080d; }
+element-text { text-color: inherit; }

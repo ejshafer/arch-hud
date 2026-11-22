@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Launch the real eDEX-UI if it's installed (Super+E).
+#   install:  yay -S edex-ui-bin
+# eDEX-UI was archived upstream in 2021 and ships an old Electron build —
+# treat it as eye candy, not as your daily shell.
+
+bin="$(command -v edex-ui || command -v eDEX-UI || true)"
+if [[ -z "$bin" ]]; then
+  notify-send "eDEX-UI not installed" "Run: yay -S edex-ui-bin"
+  [[ "$1" == "--wait" ]] && exec kitty   # keep an edex session usable
+  exit 1
+fi
+
+if [[ "$1" == "--wait" ]]; then
+  exec "$bin"
+fi
+"$bin" >/dev/null 2>&1 &

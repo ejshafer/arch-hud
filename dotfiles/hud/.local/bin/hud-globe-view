@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Borderless, transparent, click-through-ish WebKit window that shows the globe page.
+
+usage: hud-globe-view X Y SIZE /path/to/index.html
+"""
+import sys
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("WebKit2", "4.1")
+from gi.repository import Gdk, Gtk, WebKit2  # noqa: E402
+
+
+def main() -> None:
+    x, y, size = (int(v) for v in sys.argv[1:4])
+    page = sys.argv[4]
+
+    win = Gtk.Window(title="HUD-GLOBE")
+    win.set_wmclass("hud-globe", "HudGlobe")
+    # Desktop-type window: Openbox draws no frame, keeps it under everything,
+    # shows it on every workspace and never gives it focus.
+    win.set_type_hint(Gdk.WindowTypeHint.DESKTOP)
+    win.set_decorated(False)
+    win.set_skip_taskbar_hint(True)
+    win.set_skip_pager_hint(True)
+    win.set_accept_focus(False)
+    win.set_keep_below(True)
+    win.stick()
+
+    # Transparent background so only the globe shows (needs picom running).
+    screen = win.get_screen()
+    visual = screen.get_rgba_visual()
+    if visual is not None and screen.is_composited():
+        win.set_visual(visual)
+    win.set_app_paintable(True)
+
+    view = WebKit2.WebView()
+    view.set_background_color(Gdk.RGBA(0, 0, 0, 0))
+    view.load_uri(f"file://{page}")
+    win.add(view)
+
+    win.set_default_size(size, size)
+    win.move(x, y)
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    win.move(x, y)
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

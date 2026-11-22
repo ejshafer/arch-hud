@@ -1,0 +1,60 @@
+// arch-hud palette (eDEX-UI "tron")
+$cyan: #aacfd1;
+$hot:  #e8f6f7;
+$ink:  rgba(5, 8, 13, 0.80);
+$line: #262828;
+$dim:  #4f6566;
+
+* {
+  all: unset;
+  font-family: "Share Tech Mono", "Fira Mono", monospace;
+  font-size: 12px;
+  color: $cyan;
+}
+
+window { background-color: transparent; }
+
+.panel {
+  background-color: $ink;
+  border: 1px solid $line;
+  border-left: 2px solid $cyan;
+  padding: 16px 18px;
+}
+
+.clock { font-size: 40px; letter-spacing: 3px; color: $hot; }
+.date  { font-size: 11px; letter-spacing: 4px; color: $dim; }
+
+.section-head {
+  border-bottom: 1px solid $line;
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+}
+.section-title { font-size: 11px; letter-spacing: 3px; }
+.section-tick  { color: $dim; font-size: 10px; }
+
+.k { color: $dim; letter-spacing: 1px; }
+.v { color: $cyan; }
+
+.bar trough      { min-height: 4px; background-color: $line; }
+.bar progress    { min-height: 4px; background-color: $cyan; }
+
+.core trough     { min-width: 4px; min-height: 34px; background-color: $line; }
+.core progress   { min-width: 4px; background-color: $cyan; }
+
+.graph     { color: $cyan; background-color: rgba(170, 207, 209, 0.05); }
+.graph.alt { color: $dim; }
+
+.procs { font-family: "Fira Mono", monospace; font-size: 11px; color: $cyan; }
+
+.dockbar {
+  background-color: $ink;
+  border: 1px solid $line;
+  border-bottom: 0;
+  padding: 0 16px;
+}
+.dockbar .k { font-size: 11px; }
+.ws-btn        { padding: 2px 8px; }
+.ws-btn label  { color: $dim; }
+.ws-btn:hover label { color: $cyan; }
+.ws-btn.active { background-color: $cyan; }
+.ws-btn.active label { color: #05080d; }

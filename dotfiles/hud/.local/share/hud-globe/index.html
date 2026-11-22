@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HUD-GLOBE</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// ENCOM-style network globe, inspired by arscan/encom-globe. Plain canvas, no libraries.
+// Dot sphere + real city coordinates + animated great-circle links + orbiting satellites.
+const CYAN = [170, 207, 209], HOT = [232, 246, 247], DIM = [79, 101, 102];
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W, H, R, CX, CY, DPR;
+
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  R = Math.min(W, H) * 0.34; CX = W / 2; CY = H / 2 + 8;
+}
+addEventListener('resize', resize); resize();
+
+// Evenly spread points on a sphere (Fibonacci lattice).
+const N = 900, dots = [];
+for (let i = 0; i < N; i++) {
+  const y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), t = i * 2.399963;
+  dots.push([Math.cos(t) * r, y, Math.sin(t) * r]);
+}
+
+const CITIES = [
+  ['NEW YORK', 40.7, -74.0], ['SAN FRANCISCO', 37.8, -122.4], ['LONDON', 51.5, -0.1],
+  ['TOKYO', 35.7, 139.7], ['SYDNEY', -33.9, 151.2], ['SAO PAULO', -23.5, -46.6],
+  ['SINGAPORE', 1.35, 103.8], ['FRANKFURT', 50.1, 8.7], ['MUMBAI', 19.1, 72.9],
+  ['JOHANNESBURG', -26.2, 28.0], ['MOSCOW', 55.8, 37.6], ['TORONTO', 43.7, -79.4],
+  ['DUBAI', 25.2, 55.3], ['SEOUL', 37.6, 127.0], ['MEXICO CITY', 19.4, -99.1],
+  ['REYKJAVIK', 64.1, -21.9], ['CAIRO', 30.0, 31.2], ['HONG KONG', 22.3, 114.2],
+  ['LOS ANGELES', 34.1, -118.2], ['BUENOS AIRES', -34.6, -58.4], ['NAIROBI', -1.3, 36.8],
+];
+const toVec = (lat, lon) => {
+  const a = lat * Math.PI / 180, b = lon * Math.PI / 180;
+  return [Math.cos(a) * Math.sin(b), Math.sin(a), Math.cos(a) * Math.cos(b)];
+};
+const cities = CITIES.map(([n, la, lo]) => ({ n, la, lo, v: toVec(la, lo) }));
+
+let rotY = 0;
+const TILT = 0.38;
+function project(v, lift = 1) {
+  // rotate around Y (spin), then X (tilt)
+  const cy = Math.cos(rotY), sy = Math.sin(rotY);
+  let x = v[0] * cy + v[2] * sy, z = -v[0] * sy + v[2] * cy, y = v[1];
+  const ct = Math.cos(TILT), st = Math.sin(TILT);
+  const y2 = y * ct - z * st, z2 = y * st + z * ct;
+  return { x: CX + x * R * lift, y: CY - y2 * R * lift, z: z2 };
+}
+
+function slerp(a, b, t) {
+  const d = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+  const th = Math.acos(d), s = Math.sin(th) || 1e-6;
+  const k1 = Math.sin((1 - t) * th) / s, k2 = Math.sin(t * th) / s;
+  return [a[0] * k1 + b[0] * k2, a[1] * k1 + b[1] * k2, a[2] * k1 + b[2] * k2];
+}
+
+const links = [];
+let lastLink = 0, lastLabel = 'STANDBY';
+function spawnLink(now) {
+  const a = cities[Math.random() * cities.length | 0];
+  let b = a; while (b === a) b = cities[Math.random() * cities.length | 0];
+  links.push({ a, b, t0: now, dur: 1800 + Math.random() * 1200 });
+  lastLabel = `${a.n} → ${b.n}`;
+}
+
+const sats = [0, 1, 2].map(i => ({ inc: 0.5 + i * 0.6, speed: 0.00035 + i * 0.00012, ph: i * 2.1, r: 1.32 + i * 0.07 }));
+
+function frame(now) {
+  ctx.clearRect(0, 0, W, H);
+  rotY = now * 0.00012;
+
+  // halo + frame ring
+  const g = ctx.createRadialGradient(CX, CY, R * 0.9, CX, CY, R * 1.25);
+  g.addColorStop(0, rgba(CYAN, 0.10)); g.addColorStop(1, rgba(CYAN, 0));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(CX, CY, R * 1.25, 0, 7); ctx.fill();
+  ctx.strokeStyle = rgba(CYAN, 0.25); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(CX, CY, R * 1.12, 0, 7); ctx.stroke();
+  for (let i = 0; i < 72; i++) {  // tick marks
+    const a = i / 72 * Math.PI * 2 + now * 0.00005, l = i % 6 ? 4 : 9;
+    ctx.beginPath();
+    ctx.moveTo(CX + Math.cos(a) * R * 1.12, CY + Math.sin(a) * R * 1.12);
+    ctx.lineTo(CX + Math.cos(a) * (R * 1.12 + l), CY + Math.sin(a) * (R * 1.12 + l));
+    ctx.stroke();
+  }
+
+  // dot sphere
+  for (const d of dots) {
+    const p = project(d);
+    const front = p.z > 0;
+    ctx.fillStyle = rgba(front ? CYAN : DIM, front ? 0.25 + p.z * 0.55 : 0.12);
+    ctx.fillRect(p.x - 0.8, p.y - 0.8, front ? 1.7 : 1.1, front ? 1.7 : 1.1);
+  }
+
+  // satellites
+  for (const s of sats) {
+    const a = now * s.speed + s.ph;
+    const v = [Math.cos(a), Math.sin(a) * Math.sin(s.inc), Math.sin(a) * Math.cos(s.inc)];
+    const p = project(v, s.r);
+    ctx.fillStyle = rgba(p.z > -0.2 ? HOT : DIM, p.z > -0.2 ? 0.9 : 0.3);
+    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+  }
+
+  // links
+  if (now - lastLink > 900) { spawnLink(now); lastLink = now; }
+  for (let i = links.length - 1; i >= 0; i--) {
+    const L = links[i], t = (now - L.t0) / L.dur;
+    if (t > 1.6) { links.splice(i, 1); continue; }
+    const head = Math.min(1, t), tail = Math.max(0, t - 0.6);
+    const fade = t > 1 ? 1 - (t - 1) / 0.6 : 1;
+    ctx.beginPath();
+    for (let k = 0; k <= 40; k++) {
+      const u = tail + (head - tail) * (k / 40);
+      const p = project(slerp(L.a.v, L.b.v, u), 1 + 0.22 * Math.sin(Math.PI * u));
+      k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y);
+    }
+    ctx.strokeStyle = rgba(HOT, 0.75 * fade); ctx.lineWidth = 1.2; ctx.stroke();
+  }
+
+  // city markers (front side only)
+  ctx.font = '9px "Share Tech Mono", "Fira Mono", monospace';
+  for (const c of cities) {
+    const p = project(c.v);
+    if (p.z <= 0.05) continue;
+    const pulse = 3 + 2 * Math.sin(now * 0.004 + c.lo);
+    ctx.strokeStyle = rgba(CYAN, 0.8); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(p.x, p.y, pulse, 0, 7); ctx.stroke();
+    ctx.fillStyle = rgba(HOT, 1); ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+    if (p.z > 0.7) { ctx.fillStyle = rgba(CYAN, 0.7); ctx.fillText(c.n, p.x + 6, p.y - 4); }
+  }
+
+  // HUD text
+  ctx.font = '10px "Share Tech Mono", "Fira Mono", monospace';
+  ctx.fillStyle = rgba(CYAN, 0.9);
+  ctx.fillText('GLOBAL NETWORK MAP', 10, 16);
+  ctx.fillStyle = rgba(DIM, 1);
+  ctx.fillText(`NODES ${cities.length}  LINKS ${links.length}`, 10, 30);
+  ctx.fillStyle = rgba(CYAN, 0.8);
+  ctx.fillText(lastLabel, 10, H - 12);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

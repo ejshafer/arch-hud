@@ -1,0 +1,28 @@
+[global]
+    font = Fira Mono 10
+    origin = top-center
+    offset = (0, 24)
+    width = 420
+    frame_width = 1
+    frame_color = "#aacfd1"
+    separator_color = frame
+    padding = 10
+    horizontal_padding = 14
+    corner_radius = 0
+    format = "<b>%s</b>\n%b"
+
+[urgency_low]
+    background = "#05080dee"
+    foreground = "#4f6566"
+    timeout = 4
+
+[urgency_normal]
+    background = "#05080dee"
+    foreground = "#aacfd1"
+    timeout = 6
+
+[urgency_critical]
+    background = "#05080dee"
+    foreground = "#ff7a7a"
+    frame_color = "#d15b5b"
+    timeout = 0

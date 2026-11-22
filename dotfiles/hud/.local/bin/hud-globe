@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Toggle the ENCOM-style globe in the lower-right HUD column (Super+G).
+#   hud-globe        toggle
+#   hud-globe --on   start if not running (used by autostart)
+
+page="$HOME/.local/share/hud-globe/index.html"
+
+if pgrep -f hud-globe-view >/dev/null; then
+  [[ "$1" == "--on" ]] && exit 0
+  pkill -f hud-globe-view
+  exit 0
+fi
+
+# Geometry of the primary monitor (or the first connected one).
+geo="$(xrandr --query | grep ' connected primary' | grep -oE '[0-9]+x[0-9]+\+[0-9]+\+[0-9]+' | head -n1)"
+[[ -z "$geo" ]] && geo="$(xrandr --query | grep ' connected' | grep -oE '[0-9]+x[0-9]+\+[0-9]+\+[0-9]+' | head -n1)"
+W="${geo%%x*}"; rest="${geo#*x}"; H="${rest%%+*}"; rest="${rest#*+}"; OX="${rest%%+*}"; OY="${rest#*+}"
+
+# Sits under the right eww panel (16px from top, 52% tall) in the 320px column.
+size=320
+x=$(( OX + W - 16 - size ))
+y=$(( OY + 16 + H * 52 / 100 + 12 ))
+room=$(( OY + H - 48 - y ))
+(( room < size )) && size=$room
+(( size < 160 )) && { notify-send "HUD" "Screen too short for the globe"; exit 0; }
+
+setsid -f hud-globe-view "$x" "$y" "$size" "$page" >/dev/null 2>&1

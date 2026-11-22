@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Save this machine's setup to GitHub and pull changes made on other machines.
+#   1. snapshots your explicitly-installed package lists into packages/
+#   2. commits + pulls (rebase) + pushes
+#   3. re-links dotfiles so any new files from other machines take effect
+set -euo pipefail
+
+[[ -f "$HOME/.config/hud/repo.env" ]] && . "$HOME/.config/hud/repo.env"
+repo="${HUD_REPO:-$HOME/arch-hud}"
+cd "$repo"
+
+pacman -Qqen > packages/installed-repo.txt
+pacman -Qqem > packages/installed-aur.txt
+
+git add -A
+if ! git diff --cached --quiet; then
+  git commit -m "sync from $(cat /proc/sys/kernel/hostname) $(date +%F)"
+fi
+git pull --rebase
+git push
+
+./bootstrap.sh --dotfiles
+echo "[hud] synced."

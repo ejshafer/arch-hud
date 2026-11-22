@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+  <menu id="root-menu" label="ARCH // HUD">
+    <item label="TERMINAL"><action name="Execute"><command>kitty</command></action></item>
+    <item label="LAUNCHER"><action name="Execute"><command>rofi -show drun</command></action></item>
+    <item label="SYSTEM MONITOR"><action name="Execute"><command>kitty --class hud-monitor btop</command></action></item>
+    <separator/>
+    <item label="TOGGLE HUD PANELS"><action name="Execute"><command>hud-toggle</command></action></item>
+    <item label="TOGGLE GLOBE"><action name="Execute"><command>hud-globe</command></action></item>
+    <item label="eDEX-UI"><action name="Execute"><command>hud-edex</command></action></item>
+    <separator/>
+    <item label="SYNC TO GITHUB"><action name="Execute"><command>kitty --hold hud-sync</command></action></item>
+    <item label="RELOAD OPENBOX"><action name="Reconfigure"/></item>
+    <item label="LOG OUT"><action name="Exit"><prompt>yes</prompt></action></item>
+    <item label="REBOOT"><action name="Execute"><command>systemctl reboot</command></action></item>
+    <item label="POWER OFF"><action name="Execute"><command>systemctl poweroff</command></action></item>
+  </menu>
+</openbox_menu>

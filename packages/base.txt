@@ -1,0 +1,56 @@
+# Everything the HUD desktop needs. One package per line, # for comments.
+# bootstrap.sh installs repo packages with pacman and the rest from the AUR with yay,
+# so it doesn't matter which file a package lives in.
+
+# --- portable hardware support (works on whatever machine you plug into) ---
+linux-firmware
+sof-firmware
+amd-ucode
+intel-ucode
+mesa
+vulkan-intel
+vulkan-radeon
+vulkan-nouveau
+networkmanager
+bluez
+bluez-utils
+
+# --- audio ---
+pipewire
+pipewire-pulse
+wireplumber
+
+# --- X11 + window manager ---
+xorg-server
+xorg-xinit
+xorg-xrandr
+xorg-xsetroot
+xorg-xprop
+xf86-input-libinput
+openbox
+picom
+wmctrl
+xdotool
+feh
+
+# --- apps the desktop uses ---
+kitty
+xterm
+rofi
+dunst
+libnotify
+stow
+jq
+git
+github-cli
+openssh
+python
+python-gobject
+webkit2gtk-4.1
+htop
+btop
+
+# --- fonts ---
+ttf-fira-mono
+ttf-dejavu
+noto-fonts

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Show / hide the eww HUD panels (Super+H).
+if eww active-windows 2>/dev/null | grep -q '^left'; then
+  eww close-all
+else
+  eww open-many left right dockbar
+fi

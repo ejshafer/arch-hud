@@ -94,7 +94,7 @@
         (button :class {ws == i ? "ws-btn active" : "ws-btn"}
                 :onclick "wmctrl -s ${i}"
                 (label :truncate false :text "0${i + 1}"))))
-    (label :class "k" :truncate false :text "SUPER+D LAUNCH   SUPER+⏎ SHELL   SUPER+G GLOBE")))
+    (label :class "k" :truncate false :text "SUPER+D LAUNCH   SUPER+ENTER SHELL   SUPER+G GLOBE")))
 
 ;; ───────────────────────── windows ─────────────────────────
 ;; "dock" windows with struts: Openbox keeps maximised windows out of these columns.

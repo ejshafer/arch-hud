@@ -43,6 +43,8 @@ stow
 jq
 git
 less
+vim
+nmap
 github-cli
 openssh
 python

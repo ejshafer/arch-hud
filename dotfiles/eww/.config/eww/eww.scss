@@ -52,7 +52,7 @@ window { background-color: transparent; }
   border-bottom: 0;
   padding: 0 16px;
 }
-.dockbar .k { font-size: 11px; }
+.dockbar .k { font-size: 11px; letter-spacing: 0; }
 .ws-btn        { padding: 2px 8px; }
 .ws-btn label  { color: $dim; }
 .ws-btn:hover label { color: $cyan; }

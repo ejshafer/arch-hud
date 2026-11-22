@@ -88,13 +88,13 @@
 ;; ───────────────────────── bottom bar ─────────────────────────
 (defwidget dockbar-widget []
   (box :class "dockbar" :space-evenly false :spacing 18 :halign "center"
-    (label :class "k" :text "ARCH // HUD")
+    (label :class "k" :truncate false :text "ARCH // HUD")
     (box :class "ws" :space-evenly false :spacing 4
       (for i in wslist
         (button :class {ws == i ? "ws-btn active" : "ws-btn"}
                 :onclick "wmctrl -s ${i}"
-                (label :text "0${i + 1}"))))
-    (label :class "k" :text "SUPER+D LAUNCH   SUPER+⏎ SHELL   SUPER+G GLOBE")))
+                (label :truncate false :text "0${i + 1}"))))
+    (label :class "k" :truncate false :text "SUPER+D LAUNCH   SUPER+⏎ SHELL   SUPER+G GLOBE")))
 
 ;; ───────────────────────── windows ─────────────────────────
 ;; "dock" windows with struts: Openbox keeps maximised windows out of these columns.
